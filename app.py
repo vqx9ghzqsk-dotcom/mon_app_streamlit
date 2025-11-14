@@ -1,4 +1,7 @@
 # app.py
+streamlit
+pandas
+plotly
 # Application Streamlit pour collecte & analyse de la fiche d'enquête
 # Usage:
 #  pip install streamlit pandas plotly openpyxl scipy

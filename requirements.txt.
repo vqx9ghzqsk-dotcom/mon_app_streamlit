@@ -326,7 +326,4 @@ else:
     st.info("Pas encore de données pour les analyses.")
 
 st.markdown("---")
-st.markdown("Notes & instructions :\n- Les réponses sont sauvegardées localement dans `data/responses.csv` sur le serveur où tu exécutes l'app.\n- Tu peux adapter, ajouter indicateurs, tests statistiques ou visualisations (ex : ROC, analyses multivariées) si tu veux des analyses plus poussées.\n- Pour analyses plus avancées (régressions, p-values robustes, stratification), je peux t'ajouter des modules.")
-streamlit
-pandas
-plotly
+st.markdown("Notes & instructions :\n- Les réponses sont sauvegardées localement dans `data/responses.csv` sur le serveur où tu exécutes l'app.\n- Tu peux adapter, ajouter indicateurs, tests statistiques ou visualisations (ex : ROC, analyses multivariées) si tu veux des analyses plus poussées.\n- Pour analyses plus avancées (régressions, p-values robustes, stratification), je peux t'ajouter des modules.")streamlit           pandas plotly

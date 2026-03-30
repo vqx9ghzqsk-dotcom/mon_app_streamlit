@@ -1,332 +1,257 @@
-# app.py
-streamlit
-pandas
-plotly
-# Application Streamlit pour collecte & analyse de la fiche d'enquête
-# Usage:
-#  pip install streamlit pandas plotly openpyxl scipy
-#  streamlit run app.py
-
-import streamlit as st
-import pandas as pd
-import os
-from datetime import datetime
-import plotly.express as px
-from scipy import stats
-
-# --- Config ---
-DATA_DIR = "data"
-DATA_FILE = os.path.join(DATA_DIR, "responses.csv")
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
-st.set_page_config(page_title="Fiche d'enquête - Prévention cancer du sein", layout="wide")
-
-st.title("Fiche de collecte -- Prévention du cancer du sein (HGRM)")
-st.markdown("Application de saisie et d'analyse des enquêtes. Remplis la fiche à gauche, visualise et analyse les réponses à droite.")
-
-# --- Helper: default columns to match la fiche ---
-def get_columns():
-    cols = [
-        "timestamp",
-        "code_enquete",
-        "date_enquete",
-        "service",
-        "enqueteur",
-        "consentement",  # Oui/Non
-        # sociodemo
-        "sexe",
-        "age",
-        "etat_civil",
-        "niveau_etudes",
-        "annees_experience",
-        "statut_professionnel",
-        "service_affectation",
-        "antecedents_cancer_personnel_familial",
-        "antecedents_detail",
-        # connaissances (True/False/NA)
-        "k_age",
-        "k_obesite",
-        "k_antec_familiaux",
-        "k_autopalpation",
-        "k_examen_clinique",
-        "k_mammographie",
-        "k_age_depistage",
-        "k_mammographie_remplace",
-        # examen de dépistage
-        "disp_mammographie",
-        "sait_ou_referer",
-        "frequence_examen_clinique",
-        "echographie_usage",
-        "sait_expliquer_mammo",
-        "sait_expliquer_exam_clinique",
-        # attitudes (1-5)
-        "att_priorite",
-        "att_aise_autopalpation",
-        "att_examen_systematique",
-        "att_cout_obstacle",
-        "att_patientes_receptives",
-        "att_capacite_recommander",
-        # pratiques
-        "pratique_autopalpation",
-        "pratique_autopalpation_freq",
-        "realise_exam_clinique",
-        "informe_signes_precoces",
-        "enseigne_autopalpation",
-        "reference_mammographie",
-        "participe_sensibilisation",
-        # obstacles (list)
-        "obstacles",
-        # recommandations
-        "besoin_formation",
-        "type_formation",
-        "suggestions"
-    ]
-    return cols
-
-# --- Load existing responses if any ---
-def load_data():
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
-    else:
-        df = pd.DataFrame(columns=get_columns())
-    return df
-
-def save_response(row: dict):
-    df = load_data()
-    df = df.append(row, ignore_index=True)
-    df.to_csv(DATA_FILE, index=False)
-
-# --- Sidebar: Form ---
-st.sidebar.header("Saisir une fiche")
-with st.sidebar.form(key="enquete_form"):
-    st.subheader("Identification")
-    code_enquete = st.text_input("Code de l'enquêtée")
-    date_enquete = st.date_input("Date de l'enquête", value=datetime.today())
-    service = st.text_input("Service")
-    enqueteur = st.text_input("Enquêteur(trice)")
-
-    st.subheader("Consentement")
-    consent = st.radio("Consentement éclairé", ("J’accepte", "Je refuse"))
-
-    st.subheader("Données sociodémographiques")
-    sexe = st.radio("Sexe", ("Femme", "Homme"))
-    age = st.number_input("Âge (ans)", min_value=16, max_value=100, value=30)
-    etat_civil = st.selectbox("État civil", ("Célibataire", "Mariée", "Autre"))
-    niveau_etudes = st.selectbox("Niveau d'études", ("Infirmière diplômée", "Licence", "Master", "Autre"))
-    annees_experience = st.number_input("Années d'expérience", min_value=0, max_value=60, value=1)
-    statut_professionnel = st.selectbox("Statut professionnel", ("Titulaire", "Contractuelle", "Stagiaire", "Autre"))
-    service_affectation = st.text_input("Service d'affectation")
-    antec_cancer = st.radio("Antécédents personnels/familiaux de cancer du sein", ("Oui", "Non"))
-    antec_detail = st.text_input("Préciser si oui (antécédent)")
-
-    st.subheader("Connaissances (Vrai/Faux)")
-    def vf_radio(label): return st.radio(label, ("Vrai", "Faux"))
-    k_age = vf_radio("Le risque augmente avec l'âge")
-    k_obesite = vf_radio("L'obésité est un facteur de risque")
-    k_antec_familiaux = vf_radio("Les antécédents familiaux augmentent le risque")
-    k_autopalpation = vf_radio("L'autopalpation détecte des anomalies précoces")
-    k_examen_clinique = vf_radio("L'examen clinique est efficace")
-    k_mammographie = vf_radio("La mammographie est un examen de dépistage secondaire")
-    k_age_depistage = st.number_input("À partir de quel âge conseille-t-on mammographie ?", min_value=0, max_value=100, value=40)
-    k_mammographie_remplace = vf_radio("La mammographie remplace l'examen clinique")
-
-    st.subheader("Connaissances sur examens")
-    disp_mammo = st.selectbox("Structure dispose d'un service de mammographie ?", ("Oui", "Non", "Je ne sais pas"))
-    sait_referer = st.radio("Savez-vous où référer les patientes ?", ("Oui", "Non"))
-    frequence_examen = st.selectbox("Fréquence examen clinique", ("Chaque année", "Tous les 2 ans", "Je ne sais pas"))
-    echo_usage = st.selectbox("L'échographie mammaire est utilisée :", ("En complément", "En première intention chez les femmes jeunes", "Je ne sais pas"))
-    sait_expliquer_mammo = st.radio("Savez-vous expliquer l'utilité de la mammographie ?", ("Oui", "Non"))
-    sait_expliquer_exam = st.radio("Savez-vous expliquer le déroulement de l'examen clinique ?", ("Oui", "Non"))
-
-    st.subheader("Attitudes (1-5)")
-    att_priorite = st.slider("La prévention est une priorité", 1, 5, 4)
-    att_aise = st.slider("Je suis à l'aise pour expliquer l'autopalpation", 1, 5, 3)
-    att_systematique = st.slider("L'examen devrait être systématique chez les femmes à risque", 1, 5, 4)
-    att_cout_obstacle = st.slider("Le coût constitue un obstacle majeur", 1, 5, 4)
-    att_patientes_receptives = st.slider("Les patientes sont réceptives", 1, 5, 3)
-    att_capacite = st.slider("Je me sens capable de recommander un dépistage adapté", 1, 5, 3)
-
-    st.subheader("Pratiques")
-    pratique_auto = st.radio("Pratique personnelle de l'autopalpation", ("Oui", "Non"))
-    pratique_auto_freq = st.selectbox("Fréquence", ("Mensuelle", "Occasionnelle", "Rare"))
-    realise_exam_clinique = st.selectbox("Réalisez-vous un examen clinique lors des consultations ?", ("Toujours", "Parfois", "Jamais"))
-    informe_signes = st.radio("Informez-vous les patientes sur les signes précoces ?", ("Oui", "Non", "Parfois"))
-    enseigne_auto = st.radio("Enseignez-vous l'autopalpation ?", ("Oui", "Non"))
-    reference_mammo = st.radio("Référencez-vous pour mammographie ?", ("Oui", "Non"))
-    participe_sens = st.radio("Avez-vous participé à une activité de sensibilisation ?", ("Oui", "Non"))
-
-    st.subheader("Obstacles (cochez ceux qui s'appliquent)")
-    obst_options = ["Manque de matériel", "Manque de formation", "Manque de temps", "Coût élevé des examens",
-                    "Distance vers les centres", "Tabous culturels", "Manque d'information des patientes",
-                    "Surcharge de travail", "Autres"]
-    obstacles_selected = st.multiselect("Obstacles", obst_options)
-    autres_obstacles = ""
-    if "Autres" in obstacles_selected:
-        autres_obstacles = st.text_input("Précisez autres obstacles")
-
-    st.subheader("Recommandations")
-    besoin_formation = st.radio("Besoin de formation supplémentaire ?", ("Oui", "Non"))
-    type_formation = st.selectbox("Quel type de formation ?", ("Licence", "Master", "Formation continue", "Autre"))
-    suggestions = st.text_area("Suggestions pour améliorer la prévention")
-
-    submit = st.form_submit_button("Enregistrer la fiche")
-
-    if submit:
-        row = {
-            "timestamp": datetime.now().isoformat(),
-            "code_enquete": code_enquete,
-            "date_enquete": date_enquete.isoformat(),
-            "service": service,
-            "enqueteur": enqueteur,
-            "consentement": consent,
-            "sexe": sexe,
-            "age": int(age),
-            "etat_civil": etat_civil,
-            "niveau_etudes": niveau_etudes,
-            "annees_experience": int(annees_experience),
-            "statut_professionnel": statut_professionnel,
-            "service_affectation": service_affectation,
-            "antecedents_cancer_personnel_familial": antec_cancer,
-            "antecedents_detail": antec_detail,
-            "k_age": k_age,
-            "k_obesite": k_obesite,
-            "k_antec_familiaux": k_antec_familiaux,
-            "k_autopalpation": k_autopalpation,
-            "k_examen_clinique": k_examen_clinique,
-            "k_mammographie": k_mammographie,
-            "k_age_depistage": int(k_age_depistage),
-            "k_mammographie_remplace": k_mammographie_remplace,
-            "disp_mammographie": disp_mammo,
-            "sait_ou_referer": sait_referer,
-            "frequence_examen_clinique": frequence_examen,
-            "echographie_usage": echo_usage,
-            "sait_expliquer_mammo": sait_expliquer_mammo,
-            "sait_expliquer_exam_clinique": sait_expliquer_exam,
-            "att_priorite": att_priorite,
-            "att_aise_autopalpation": att_aise,
-            "att_examen_systematique": att_systematique,
-            "att_cout_obstacle": att_cout_obstacle,
-            "att_patientes_receptives": att_patientes_receptives,
-            "att_capacite_recommander": att_capacite,
-            "pratique_autopalpation": pratique_auto,
-            "pratique_autopalpation_freq": pratique_auto_freq,
-            "realise_exam_clinique": realise_exam_clinique,
-            "informe_signes_precoces": informe_signes,
-            "enseigne_autopalpation": enseigne_auto,
-            "reference_mammographie": reference_mammo,
-            "participe_sensibilisation": participe_sens,
-            "obstacles": "; ".join(obstacles_selected) + ("; " + autres_obstacles if autres_obstacles else ""),
-            "besoin_formation": besoin_formation,
-            "type_formation": type_formation,
-            "suggestions": suggestions
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Médical - HGR Makala</title>
+    <!-- Google Fonts pour un look premium -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* --- DESIGN SYSTEM (SKELETON & AESTHETICS) --- */
+        :root {
+            --primary: #00796b; 
+            --primary-light: #e0f2f1;
+            --secondary: #37474f;
+            --accent: #26a69a;
+            --bg-body: #f0f4f8;
+            --bg-card: #ffffff;
+            --text-title: #263238;
+            --text-body: #455a64;
+            --border: #e0e6ed;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        save_response(row)
-        st.success("Fiche enregistrée ✅")
 
-# --- Main area: Visualisation & Analyses ---
-st.header("Tableau de bord -- Données & analyses")
+        * { box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; color: var(--text-body); line-height: 1.6; }
 
-df = load_data()
-st.write(f"Nombre de fiches collectées : **{len(df)}**")
+        .app-container { max-width: 1250px; margin: 30px auto; background: var(--bg-card); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; min-height: 90vh; display: flex; flex-direction: column; }
 
-col1, col2 = st.columns([1,1])
+        /* --- HEADER & NAVIGATION --- */
+        .app-header { background: #fff; padding: 0 25px; border-bottom: 3px solid var(--primary); display: flex; align-items: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.03); }
+        .nav-tabs { display: flex; gap: 10px; padding: 15px 0; flex-grow: 1; }
+        .tab { padding: 12px 22px; font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; border: 1px solid var(--border); border-radius: 8px; background: #fafafa; color: var(--text-body); cursor: pointer; transition: var(--transition); display: flex; align-items: center; gap: 10px; }
+        .tab:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+        .tab.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 4px 15px rgba(0, 121, 107, 0.25); }
+        
+        /* Badges */
+        .badge-count { background: rgba(0,0,0,0.1); padding: 2px 8px; border-radius: 20px; font-size: 10px; }
+        .tab.active .badge-count { background: rgba(255,255,255,0.2); }
 
-with col1:
-    st.subheader("Données brutes")
-    if len(df)==0:
-        st.info("Aucune fiche enregistrée pour l'instant.")
-    else:
-        st.dataframe(df.sort_values("timestamp", ascending=False).reset_index(drop=True))
-        st.download_button("Télécharger CSV", df.to_csv(index=False).encode('utf-8'), file_name="responses.csv", mime="text/csv")
+        /* --- CONTENT AREAS --- */
+        .tab-content { padding: 40px; display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-with col2:
-    st.subheader("Statistiques descriptives rapides")
-    if len(df) > 0:
-        # Age
-        ages = df["age"].dropna().astype(int)
-        st.metric("Âge moyen", f"{ages.mean():.1f} ans")
-        st.metric("Âge médian", f"{ages.median():.0f} ans")
-        st.write("Distribution d'âge :")
-        fig_age = px.histogram(ages, nbins=10, labels={'value':'Âge'}, title="Histogramme des âges")
-        st.plotly_chart(fig_age, use_container_width=True)
+        /* --- UI COMPONENTS (SKELETON ELEMENTS) --- */
+        .section-header { margin: 30px 0 20px; padding: 15px 25px; background: var(--primary-light); color: var(--primary-dark); font-weight: 800; border-left: 8px solid var(--primary); border-radius: 4px 12px 12px 4px; text-transform: uppercase; font-size: 14px; }
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; margin-bottom: 25px; }
+        .input-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-size: 13px; font-weight: 800; color: var(--secondary); display: flex; align-items: center; gap: 5px; }
+        input, select, textarea { padding: 14px; border: 2px solid #edf2f7; border-radius: 10px; font-size: 15px; width: 100%; transition: var(--transition); }
+        input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 4px rgba(38, 166, 154, 0.1); }
 
-        # Sexe distribution
-        st.write("Répartition par sexe :")
-        fig_sex = px.pie(df, names="sexe", title="Sexe")
-        st.plotly_chart(fig_sex, use_container_width=True)
+        /* Checkbox Box Grid */
+        .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 20px; background: #fcfcfc; border: 2px dashed var(--border); border-radius: 12px; }
+        .check-pill { display: flex; align-items: center; gap: 12px; padding: 12px; background: #fff; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: 0.2s; font-size: 14px; font-weight: 600; }
+        .check-pill:hover { border-color: var(--primary); background: var(--primary-light); }
+        .check-pill input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
 
-        # Niveau d'études freq
-        st.write("Niveau d'études (fréquences & %)")
-        freq_niv = df["niveau_etudes"].value_counts(dropna=False).rename_axis('niveau').reset_index(name='count')
-        freq_niv['percent'] = (freq_niv['count'] / freq_niv['count'].sum()*100).round(1).astype(str) + '%'
-        st.table(freq_niv)
+        /* Buttons */
+        .btn-primary { background: var(--primary); color: #fff; padding: 18px 30px; border: none; border-radius: 12px; font-weight: 800; cursor: pointer; width: 100%; font-size: 16px; text-transform: uppercase; margin-top: 30px; transition: var(--transition); box-shadow: 0 8px 15px rgba(0, 121, 107, 0.2); }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 12px 25px rgba(0, 121, 107, 0.3); }
 
-        # Connaissances: exemples (calcul % de 'Vrai' réponses)
-        st.write("Connaissances -- % de réponses 'Vrai'")
-        k_cols = ["k_age","k_obesite","k_antec_familiaux","k_autopalpation","k_examen_clinique","k_mammographie"]
-        kn = {}
-        for c in k_cols:
-            if c in df.columns:
-                total = df[c].notna().sum()
-                if total>0:
-                    true_count = (df[c]=="Vrai").sum()
-                    kn[c] = {"Vrai": true_count, "Total": total, "Percent": f"{true_count/total*100:.1f}%"}
-        kn_df = pd.DataFrame.from_dict(kn, orient='index')
-        st.table(kn_df)
+        /* Tables & Matrix */
+        .matrix-container { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; min-width: 800px; }
+        th { background: #f8fafc; padding: 18px; text-align: left; font-size: 12px; font-weight: 800; color: var(--secondary); border-bottom: 2px solid var(--border); }
+        td { padding: 18px; border-bottom: 1px solid var(--border); font-size: 14px; }
 
-        # Likert: Moyennes et écarts-types
-        likert_cols = ["att_priorite","att_aise_autopalpation","att_examen_systematique","att_cout_obstacle","att_patientes_receptives","att_capacite_recommander"]
-        likert_stats = []
-        for c in likert_cols:
-            if c in df.columns:
-                vals = pd.to_numeric(df[c], errors='coerce').dropna()
-                if len(vals)>0:
-                    likert_stats.append({"item": c, "mean": round(vals.mean(),2), "sd": round(vals.std(),2), "n": len(vals)})
-        st.write("Attitudes (échelle 1-5) -- Moyenne & écart-type")
-        st.table(pd.DataFrame(likert_stats).set_index("item"))
+        /* Stats Cards */
+        .stat-card { background: #fff; border: 1px solid var(--border); padding: 25px; border-radius: 15px; }
+        .stat-value { font-size: 32px; font-weight: 800; color: var(--primary); }
+        .stat-label { font-size: 12px; color: var(--text-body); font-weight: 700; margin-top: 5px; }
+    </style>
+</head>
+<body>
 
-# --- Analyses personnalisées ---
-st.subheader("Analyses & tableaux croisés")
-if len(df) > 0:
-    # Exemple: Connaissance 'k_mammographie' par niveau d'études
-    st.markdown("**Connaissance : la mammographie est un examen de dépistage secondaire** -- par niveau d'études")
-    ctab = pd.crosstab(df["niveau_etudes"], df["k_mammographie"], margins=True)
-    st.table(ctab)
+<div class="app-container">
+    <header class="app-header">
+        <nav class="nav-tabs">
+            <button class="tab active" onclick="switchTab(1)">1. Collecte 📋 <span class="badge-count" id="badge-1">150</span></button>
+            <button class="tab" onclick="switchTab(2)">2. Matrice de Dépouillement 📊</button>
+            <button class="tab" onclick="switchTab(3)">3. Résultats & Analyse 📈</button>
+            <button class="tab" onclick="switchTab(4)">4. Synthèse finale 📄</button>
+        </nav>
+        <div style="font-size: 10px; font-weight: 800; color: #999; text-transform: uppercase;">MAKALA-TB-2024</div>
+    </header>
 
-    # Chi-square test example (pourvoir de test si cell >=5)
-    try:
-        tbl = pd.crosstab(df["niveau_etudes"], df["k_mammographie"])
-        if tbl.size>0 and (tbl.values >= 5).sum() >= 2:
-            chi2, p, dof, ex = stats.chi2_contingency(tbl.fillna(0).values)
-            st.write(f"Chi² = {chi2:.2f}, p = {p:.3f}, ddl = {dof}")
-        else:
-            st.info("Trop peu de données pour un test du Chi² fiable (cellules < 5).")
-    except Exception as e:
-        st.error(f"Erreur test statistique : {e}")
+    <!-- TAB 1: COLLECTE (FICHE TB) -->
+    <div id="content-1" class="tab-content active">
+        <div style="text-align:center; margin-bottom: 40px;">
+            <h2 style="margin:0; font-weight:800; color:var(--text-title);">FICHE D'ENQUÊTE CLINIQUE</h2>
+            <p style="margin:5px 0 0; color:var(--text-body); font-weight:600; font-size:14px;">Profil de la tuberculose pulmonaire - HGR Makala</p>
+        </div>
 
-    # Histogramme d'un score composite (ex: somme des attitudes)
-    st.markdown("**Score composite d'attitude (somme des items 1-5)**")
-    df_scores = df.copy()
-    for c in likert_cols:
-        df_scores[c] = pd.to_numeric(df_scores[c], errors='coerce')
-    df_scores['att_score'] = df_scores[likert_cols].sum(axis=1, skipna=True)
-    fig_score = px.histogram(df_scores['att_score'].dropna(), nbins=15, labels={'value':'Score d\'attitude'}, title="Distribution du score d'attitude")
-    st.plotly_chart(fig_score, use_container_width=True)
+        <form id="collecteForm">
+            <div class="section-header">I. IDENTIFICATION DU DOSSIER</div>
+            <div class="grid-3">
+                <div class="input-group">
+                    <label>Numéro de fiche</label>
+                    <input type="text" placeholder="Ex: F-MAK-001" id="num-fiche">
+                </div>
+                <div class="input-group">
+                    <label>Numéro du dossier</label>
+                    <input type="text" placeholder="Numéro hospitalier..." id="num-dossier">
+                </div>
+                <div class="input-group">
+                    <label>Année d'admission</label>
+                    <select id="annee">
+                        <option value="2023">2023</option>
+                        <option value="2024" selected>2024</option>
+                    </select>
+                </div>
+            </div>
 
-    # Croiser pratiques vs formation désirée
-    st.markdown("**Pratique d'autopalpation vs besoin de formation**")
-    ctab2 = pd.crosstab(df["pratique_autopalpation"], df["besoin_formation"], normalize='index')*100
-    st.table(ctab2.round(1))
+            <div class="section-header">III. ANTÉCÉDENTS MÉDICAUX</div>
+            <div class="grid-3">
+                <div class="input-group">
+                    <label>Antécédent de tuberculose</label>
+                    <select id="ant-tb">
+                        <option value="non">Non</option>
+                        <option value="oui">Oui</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Statut VIH</label>
+                    <select id="stat-vih">
+                        <option value="neg">Négatif</option>
+                        <option value="pos">Positif</option>
+                        <option value="inc">Inconnu</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Diabète</label>
+                    <select id="diabetes">
+                        <option value="non">Non</option>
+                        <option value="oui">Oui</option>
+                    </select>
+                </div>
+            </div>
 
-    # Export Excel (CSV déjà fourni) -- on crée un Excel simple
-    if st.button("Exporter les données en Excel (.xlsx)"):
-        out_file = os.path.join(DATA_DIR, "responses.xlsx")
-        df.to_excel(out_file, index=False)
-        with open(out_file, "rb") as f:
-            st.download_button("Télécharger fichier Excel", f.read(), file_name="responses.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-else:
-    st.info("Pas encore de données pour les analyses.")
+            <div class="section-header">IV. DONNÉES CLINIQUES & SYMPTÔMES</div>
+            <div class="input-group" style="margin-bottom: 25px;">
+                <label>Motif d'admission</label>
+                <textarea rows="2" placeholder="Saisir ici le motif principal..."></textarea>
+            </div>
 
-st.markdown("---")
-st.markdown("Notes & instructions :\n- Les réponses sont sauvegardées localement dans `data/responses.csv` sur le serveur où tu exécutes l'app.\n- Tu peux adapter, ajouter indicateurs, tests statistiques ou visualisations (ex : ROC, analyses multivariées) si tu veux des analyses plus poussées.\n- Pour analyses plus avancées (régressions, p-values robustes, stratification), je peux t'ajouter des modules.")
+            <label style="margin-bottom: 12px; display: block;">Symptômes présents :</label>
+            <div class="checkbox-grid">
+                <label class="check-pill"><input type="checkbox"> Toux</label>
+                <label class="check-pill"><input type="checkbox"> Toux ≥ 2 semaines</label>
+                <label class="check-pill"><input type="checkbox"> Hémoptysie</label>
+                <label class="check-pill"><input type="checkbox"> Fièvre</label>
+                <label class="check-pill"><input type="checkbox"> Sueurs nocturnes</label>
+                <label class="check-pill"><input type="checkbox"> Amaigrissement</label>
+                <label class="check-pill"><input type="checkbox"> Douleur thoracique</label>
+                <label class="check-pill"><input type="checkbox"> Dyspnée</label>
+            </div>
+
+            <div class="grid-3" style="margin-top: 30px;">
+                <div class="input-group">
+                    <label>Durée symptômes (semaines)</label>
+                    <input type="number" placeholder="Ex: 4">
+                </div>
+                <div class="input-group">
+                    <label>État général</label>
+                    <select>
+                        <option value="bon">Bon</option>
+                        <option value="altere">Altéré</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="section-header">VIII. ÉVOLUTION CLINIQUE</div>
+            <div class="input-group" style="max-width: 400px;">
+                <label>Issue (Résultat final)</label>
+                <select>
+                    <option value="" disabled selected>Choisir l'issue...</option>
+                    <option>Guérison</option>
+                    <option>Amélioration</option>
+                    <option>Transfert</option>
+                    <option>Décès</option>
+                    <option>Perdu de vue</option>
+                </select>
+            </div>
+
+            <button type="button" class="btn-primary">📤 Enregistrer dans la matrice</button>
+        </form>
+    </div>
+
+    <!-- TAB 2: MATRICE -->
+    <div id="content-2" class="tab-content">
+        <h2 style="font-weight: 800;">BASE DE DONNÉES EN LIGNE (N=150)</h2>
+        <div class="matrix-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>N° FICHE</th><th>DOSSIER</th><th>ANT_TB</th><th>VIH</th><th>DIABÈTE</th><th>ISSUE</th><th>ACTION</th>
+                    </tr>
+                </thead>
+                <tbody id="matrixBody">
+                    <!-- Données simulées pour le squelette -->
+                    <tr><td>F-MAK-001</td><td>DOS-104</td><td>Non</td><td>Négatif</td><td>Non</td><td>Guérison</td><td><button style="font-size:10px; padding:5px 10px; border-radius:5px; border:1px solid #ccc; cursor:pointer;">Éditer</button></td></tr>
+                    <tr><td>F-MAK-002</td><td>DOS-208</td><td>Oui</td><td>Positif</td><td>Non</td><td>Décès</td><td><button style="font-size:10px; padding:5px 10px; border-radius:5px; border:1px solid #ccc; cursor:pointer;">Éditer</button></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TAB 3: RÉSULTATS -->
+    <div id="content-3" class="tab-content">
+        <h2 style="font-weight: 800;">TABLEAUX ANALYTIQUES GÉNÉRÉS</h2>
+        <div class="grid-3">
+            <div class="stat-card">
+                <div class="stat-value">28%</div>
+                <div class="stat-label">Taux de co-infection TB-VIH</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">14.2%</div>
+                <div class="stat-label">Taux de Létalité Global (CFR)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">4.5 sem.</div>
+                <div class="stat-label">Durée moyenne des symptômes</div>
+            </div>
+        </div>
+        
+        <div class="section-header">Visualisation des tendances cliniques</div>
+        <div style="height: 300px; background: #fafafa; border-radius: 12px; border: 2px dashed #eee; display:flex; align-items:center; justify-content:center; color:#999; font-weight:700;">
+            [ Zone Graphiques (Symptômes vs VIH) ]
+        </div>
+    </div>
+
+    <!-- TAB 4: SYNTHÈSE -->
+    <div id="content-4" class="tab-content">
+        <h2 style="font-weight: 800;">RAPPORT FINAL DE SYNTHÈSE</h2>
+        <div style="background: #fff; border: 1px solid var(--border); padding: 30px; border-radius: 15px; border-left: 10px solid var(--primary);">
+            <p><strong>Conclusion :</strong> L'analyse des 150 dossiers d'admission suggère une corrélation forte entre le statut sérologique VIH et l'issue fatale (Décès). La triade Toux - Fièvre - Amaigrissement reste le profil symptomatique dominant...</p>
+        </div>
+        <button class="btn-primary" style="background: var(--secondary); max-width: 300px;">📥 Télécharger le rapport (.CSV)</button>
+    </div>
+</div>
+
+<script>
+    function switchTab(idx) {
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        
+        document.getElementById('content-' + idx).classList.add('active');
+        document.querySelectorAll('.tab')[idx-1].classList.add('active');
+        window.scrollTo(0,0);
+    }
+</script>
+
+</body>
+</html>
